@@ -7,9 +7,9 @@
     machine_name: ansible2
     machine_type: f1-micro
     image: https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images/ubuntu-1604-xenial-v20170330
-    service_account_email: ansible-service@paris-code.iam.gserviceaccount.com
+    service_account_email: ansible-service@pencil-code-test.iam.gserviceaccount.com
     credentials_file: /etc/ansible/keys/service-key.json
-    project_id: paris-code
+    project_id: pencil-code-test
 
   tasks:
     - name: Launch instances
