@@ -1,12 +1,12 @@
 - name: Create ansible VM
   hosts: localhost
-  gather_facts: no
-  connection: local
+#  gather_facts: no
+#  connection: local
 
   vars:
     gcp_project: pencil-code-test
     gcp_cred_kind: serviceaccount
-    gcp_cred_file: /etc/ansible/keys/service-key.json
+#    gcp_cred_file: /etc/ansible/keys/service-key.json
     gcp_image: 'https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images/ubuntu-1604-xenial-v20170330'
     gcp_machine_name: ansible3
     gcp_machine_type: f1-micro
