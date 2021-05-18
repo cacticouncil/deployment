@@ -164,7 +164,5 @@
       copy: src={{ admin_user.home }}/{{ item }}
             dest={{ admin_user.home }}/{{ item }}
       with_items:
-#       - .ansible.cfg
 #       - .ansible_vault_password
-#       - .ssh/id_rsa.pub
        - .gitconfig
