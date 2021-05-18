@@ -1,27 +1,19 @@
 - name: Create ansible VM
   hosts: localhost
-#  gather_facts: no
-#  connection: local
-
-  vars:
-    gcp_project: pencil-code-test
-    gcp_cred_kind: serviceaccount
-#    gcp_cred_file: /etc/ansible/keys/service-key.json
-    gcp_image: 'https://www.googleapis.com/compute/v1/projects/ubuntu-os-cloud/global/images/ubuntu-1604-xenial-v20170330'
-    gcp_machine_name: ansible3
-    gcp_machine_type: f1-micro
-    gcp_region: "us-central1"
-    gcp_zone: "us-central1-a"
+  gather_facts: no
+  connection: local
+  vars_files: vars/gcp_config.yml
 
   tasks:
     - name: Create disk
       gcp_compute_disk:
         name: 'pc-ansible-disk'
-        source_image: "{{ gcp_image }}"
+        source_image: "{{ gcp_bootstrap_image }}"
         zone: "{{ gcp_zone }}"
         project: "{{ gcp_project }}"
         auth_kind: "{{ gcp_cred_kind }}"
-#        service_account_file: "{{ gcp_cred_file }}"
+        service_account_file: "{{ gcp_cred_file }}"
+        scopes: "{{ gcp_scopes }}"
       register: disk
 
     - name: Create address
@@ -30,17 +22,20 @@
         region: "{{ gcp_region }}"
         project: "{{ gcp_project }}"
         auth_kind: "{{ gcp_cred_kind }}"
-#        service_account_file: "{{ gcp_cred_file }}"
+        service_account_file: "{{ gcp_cred_file }}"
+        scopes: "{{ gcp_scopes }}"
       register: address
 
     - name: Create instance
       gcp_compute_instance:
-        name: "{{ gcp_machine_name }}"
-        machine_type: "{{ gcp_machine_type }}"
+        name: "{{ gcp_bootstrap_machine_name }}"
+        machine_type: "{{ gcp_bootstrap_machine_type }}"
         disks:
           - auto_delete: true
             boot: true
             source: "{{ disk }}"
+        metadata:
+          enable-oslogin: True
         network_interfaces:
 #          - network: null # use default
            - access_configs:
@@ -50,7 +45,8 @@
         zone: "{{ gcp_zone }}"
         project: "{{ gcp_project }}"
         auth_kind: "{{ gcp_cred_kind }}"
-#        service_account_file: "{{ gcp_cred_file }}"
+        service_account_file: "{{ gcp_cred_file }}"
+        scopes: "{{ gcp_scopes }}"
       register: instance
 
     - name: Wait for SSH to come up
@@ -59,29 +55,68 @@
     - name: Add host to groupname
       add_host: hostname={{ address.address }} groupname=launched
 
-#    - name: reset known-hosts for ips
-#      command: ssh-keygen -R {{ address.address }}
+    - name: Reset known-hosts for IPs
+      command: ssh-keygen -R {{ address.address }}
 
-#    - shell: ssh-keyscan {{ address.address }} >> ~/.ssh/known_hosts
+    - name: Add the new instance as a known host
+      shell: ssh-keyscan {{ address.address }} >> ~/.ssh/known_hosts
 
-#    - name: reset known-hosts for names
-#      command: ssh-keygen -R {{ instance.name }}
 
-#    - shell: ssh-keyscan {{ instance.name }} >> ~/.ssh/known_hosts
-
-- name: Set up machines
+- name: Set up ansible VM
   hosts: launched
   connection: ssh
+  remote_user: "{{ gcp_service_user }}"
   become: yes
 
+  vars_files: vars/gcp_config.yml
+
   vars:
-    - user_used: "{{ansible_user|default(lookup('env', 'USER'), True) }}"
+    - ansible_ssh_private_key_file: "~/.ssh/{{ gcp_service_user }}"
 
   tasks:
+    # Set up the user and copy over keys, host information, etc.
+    - name: Create admin user account (if it doesn't exist yet)
+      user:
+        name: "{{ gcp_admin_user }}"
+        groups: sudo
+        append: yes
+        state: present
+      register: admin_user
+
+    - name: Create SSH key directory (if it doesn't exist yet)
+      file:
+        path: "{{ admin_user.home }}/.ssh"
+        state: directory
+      become_user: "{{ admin_user.name }}"
+
+    - name: Copy service account private SSH key
+      become_user: "{{ admin_user.name }}"
+      copy: src={{ ansible_ssh_private_key_file }} mode=400
+            dest="{{ admin_user.home }}/.ssh/{{ gcp_service_user }}"
+
+    - name: Add github.com as known host
+      lineinfile:
+        dest: "{{ admin_user.home }}/.ssh/known_hosts"
+        create: yes
+        state: present
+        line: "{{ lookup('pipe', 'ssh-keyscan -t rsa github.com') }}"
+        regexp: "^github\\.com"
+      become_user: "{{ admin_user.name }}"
+
+    - name: Make ansible service account credential directory
+      file:
+        path: "{{ gcp_cred_file | dirname }}"
+        state: directory
+
+    - name: Copy over ansible service account credential file
+      copy:
+        content: "{{ gcp_cred_file }}"
+        dest: "{{ gcp_cred_file }}"
+
     - name: Install https support for apt
       apt: name=apt-transport-https update_cache=yes
 
-    - name: upgrade apt packages to the latest version
+    - name: Upgrade apt packages to the latest version
       apt: upgrade=dist
 
     - name: Add nodesource signing key
@@ -93,7 +128,7 @@
       apt_repository: >
         repo='deb https://deb.nodesource.com/node_0.12 wheezy main'
 
-    - name: upgrade apt packages to the latest version
+    - name: Upgrade apt packages to the latest version
       apt: upgrade=dist
 
     - name: Install apt packages
@@ -103,6 +138,7 @@
         - python-setuptools
         - python-dev
         - python-openssl
+        - python-pip
         - libssl-dev
         - libffi-dev
         - nodejs
@@ -110,51 +146,25 @@
         - vim
         - bash-completion
 
-    - name: Install pip
-      easy_install: name=pip
-
     - name: Install ansible
-      pip: name={{ item }}
-      with_items:
-        - ansible
-        - apache-libcloud
+      pip:
+        extra_args: --no-cache-dir
+        name:
+          - ansible
+          - apache-libcloud
 
-    - name: copy ssh key
-      become: no
-      copy: src=/home/{{ user_used }}/.ssh/id_rsa mode=400
-           dest=/home/{{ user_used }}/.ssh/id_rsa
-
-    - name: ensure github.com is a known host
-      become: no
-      lineinfile:
-        dest: /home/{{ user_used }}/.ssh/known_hosts
-        create: yes
-        state: present
-        line: "{{ lookup('pipe', 'ssh-keyscan -t rsa github.com') }}"
-        regexp: "^github\\.com"
-
-    - name: sync {{ dir }} to latest code
+    - name: Sync {{ dir }} to latest deployment scripts
       git: >
         repo=git@github.com:PencilCode/deployment.git
-        dest=/home/{{ user_used }}/deployment
-      become_user: "{{ user_used }}"
+        dest={{ admin_user.home }}/deployment
+      become_user: "{{ admin_user.name }}"
 
-    - file: path=/etc/ansible state=directory
-
-    - name: set up gce configruation
-      copy: src=files/gce.py dest=/etc/ansible/hosts mode=755
-    - copy: src=files/gce.ini dest=/etc/ansible/gce.ini
-    - file: path=/etc/ansible/keys state=directory
-    - copy:
-        content: "{{ gce_json_key }}"
-        dest: /etc/ansible/keys/service-key.json
-
-    - name: set up ansible defaults
+#    - name: Copy over miscellaneous helpful files
       become: no
-      copy: src=/home/{{ user_used }}/{{ item }}
-           dest=/home/{{ user_used }}/{{ item }}
+      copy: src={{ admin_user.home }}/{{ item }}
+            dest={{ admin_user.home }}/{{ item }}
       with_items:
-       - .ansible.cfg
-       - .ansible_vault_password
-       - .ssh/id_rsa.pub
+#       - .ansible.cfg
+#       - .ansible_vault_password
+#       - .ssh/id_rsa.pub
        - .gitconfig
