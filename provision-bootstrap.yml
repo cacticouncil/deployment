@@ -153,16 +153,15 @@
           - ansible
           - apache-libcloud
 
-    - name: Sync {{ dir }} to latest deployment scripts
-      git: >
-        repo=git@github.com:PencilCode/deployment.git
-        dest={{ admin_user.home }}/deployment
+    - name: Sync latest deployment scripts
+      git:
+        repo: https://github.com/PencilCode/deployment
+        dest: "{{ admin_user.home }}/deployment"
       become_user: "{{ admin_user.name }}"
 
 #    - name: Copy over miscellaneous helpful files
-      become: no
       copy: src={{ admin_user.home }}/{{ item }}
             dest={{ admin_user.home }}/{{ item }}
       with_items:
-#       - .ansible_vault_password
        - .gitconfig
+      become_user: "{{ admin_user.name }}"
