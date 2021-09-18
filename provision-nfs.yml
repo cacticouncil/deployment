@@ -113,11 +113,19 @@
   become: yes
   vars_files: vars/gcp_config.yml
   tasks:
+    - name: Debug message
+      ansible.builtin.debug:
+        msg: Before first filesystem setup
+
     - name: Set up filesystem for log disks
       filesystem:
         fstype: ext4
         dev: /dev/disk/by-id/google-persistent-disk-1
         opts: "-E lazy_itable_init=0,lazy_journal_init=0,discard"
+
+    - name: Debug message
+      ansible.builtin.debug:
+        msg: Before second filesystem setup
 
     - name: Set up filesystem for data disks
       filesystem:
